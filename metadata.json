@@ -1,0 +1,6 @@
+{
+  "name": "ListingGrabber AI",
+  "description": "Extract, view, and download all high-resolution images from Zillow listings in one click.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
