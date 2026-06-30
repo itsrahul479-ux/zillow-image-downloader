@@ -75,19 +75,36 @@ function getAddressFromUrl(zillowUrl: string): string {
   return address;
 }
 
+// Extract ZPID from Zillow URL
+function extractZpid(zillowUrl: string): string | null {
+  const match = zillowUrl.match(/\/(\d+)_zpid/);
+  return match ? match[1] : null;
+}
+
 async function scrapeZillowImages(zillowUrl: string) {
-  const response = await fetch(zillowUrl, {
-    signal: AbortSignal.timeout(10000),
+  const zpid = extractZpid(zillowUrl);
+  
+  // Use clean URL with zpid to avoid redirect issues
+  const cleanUrl = zpid
+    ? `https://www.zillow.com/homedetails/${zpid}_zpid/`
+    : zillowUrl.split("?")[0]; // Strip query params
+
+  // KEY FIX: Mobile Safari UA bypasses Zillow's desktop Cloudflare protection
+  const response = await fetch(cleanUrl, {
+    signal: AbortSignal.timeout(15000),
     headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.5",
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
       "Accept-Encoding": "gzip, deflate, br",
       "Cache-Control": "no-cache",
+      "Referer": "https://www.google.com/search?q=zillow+homes",
     }
   });
 
-  if (!response.ok) throw new Error(`Zillow returned status: ${response.status}`);
+  if (!response.ok) {
+    throw new Error(`Zillow returned status: ${response.status}`);
+  }
 
   const html = await response.text();
   let imageUrls: string[] = [];
@@ -96,38 +113,46 @@ async function scrapeZillowImages(zillowUrl: string) {
   const titleMatch = html.match(/<title>([\s\S]*?)<\/title>/);
   if (titleMatch?.[1]) pageTitle = titleMatch[1].trim();
 
+  // Parse __NEXT_DATA__ for image URLs (most reliable source)
   const nextDataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
   if (nextDataMatch?.[1]) {
-    const jsonData = JSON.parse(nextDataMatch[1]);
-    const searchForUrls = (obj: any) => {
-      if (!obj) return;
-      if (typeof obj === "string") {
-        if (obj.includes("photos.zillowstatic.com") && (obj.endsWith(".jpg") || obj.endsWith(".webp") || obj.includes("/fp/"))) {
-          imageUrls.push(obj);
+    try {
+      const jsonData = JSON.parse(nextDataMatch[1]);
+      const searchForUrls = (obj: any) => {
+        if (!obj) return;
+        if (typeof obj === "string") {
+          if (obj.includes("photos.zillowstatic.com") &&
+              (obj.endsWith(".jpg") || obj.endsWith(".webp") || obj.endsWith(".jpeg") || obj.includes("/fp/"))) {
+            imageUrls.push(obj);
+          }
+        } else if (Array.isArray(obj)) {
+          for (const item of obj) searchForUrls(item);
+        } else if (typeof obj === "object") {
+          for (const key in obj) {
+            if (Object.prototype.hasOwnProperty.call(obj, key)) searchForUrls(obj[key]);
+          }
         }
-      } else if (Array.isArray(obj)) {
-        for (const item of obj) searchForUrls(item);
-      } else if (typeof obj === "object") {
-        for (const key in obj) {
-          if (Object.prototype.hasOwnProperty.call(obj, key)) searchForUrls(obj[key]);
-        }
-      }
-    };
-    searchForUrls(jsonData);
+      };
+      searchForUrls(jsonData);
+    } catch {}
   }
 
+  // Also scan raw HTML for any photo URLs
   const staticPhotoRegex = /https:\/\/photos\.zillowstatic\.com\/[a-zA-Z0-9_\-\/]+\.(?:webp|jpg|jpeg|png)/g;
   const matches = html.match(staticPhotoRegex);
   if (matches) imageUrls.push(...matches);
 
-  imageUrls = imageUrls.map(url => convertToHighRes(url.replace(/\\u002F/g, "/").replace(/\\/g, "")));
+  // Clean up escaped URLs and convert to highest resolution
+  imageUrls = imageUrls.map(url =>
+    convertToHighRes(url.replace(/\\u002F/g, "/").replace(/\\/g, "").replace(/\\n/g, ""))
+  );
+
   return { urls: deduplicateZillowImages(imageUrls), title: pageTitle };
 }
 
 // ── Vercel Handler ────────────────────────────────────────────────────────────
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS headers
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -158,28 +183,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const imagesList = scrapeResult.urls.map((imageUrl, idx) => {
         const paddedIdx = String(idx + 1).padStart(2, "0");
         const dims = parseZillowImageDimensions(imageUrl);
-        return { url: imageUrl, filename: `zillow_image_${paddedIdx}.jpg`, width: dims.width, height: dims.height };
+        return {
+          url: imageUrl,
+          filename: `zillow_image_${paddedIdx}.jpg`,
+          width: dims.width,
+          height: dims.height
+        };
       });
-      const parsedTitle = scrapeResult.title ? scrapeResult.title.replace(" | Zillow", "") : getAddressFromUrl(sanitizedUrl);
-      return res.status(200).json({ success: true, address: parsedTitle, images: imagesList, isDemoMode: false });
+      const parsedTitle = scrapeResult.title
+        ? scrapeResult.title.replace(" | Zillow", "").replace(" - Zillow", "")
+        : getAddressFromUrl(sanitizedUrl);
+
+      return res.status(200).json({
+        success: true,
+        address: parsedTitle,
+        images: imagesList,
+        isDemoMode: false
+      });
     }
 
-    // 0 images → demo fallback
+    // 0 images found — Zillow may have blocked even the mobile UA on this listing
     return res.status(200).json({
       success: true,
       address: getAddressFromUrl(sanitizedUrl),
       images: [],
       isDemoMode: true,
-      message: "Zillow's anti-scraping protection blocked this request. Try again or use a different listing URL."
+      message: "No images found for this listing. Zillow may have restricted access to this property."
     });
 
   } catch (error: any) {
     return res.status(200).json({
-      success: true,
-      address: getAddressFromUrl(sanitizedUrl),
-      images: [],
-      isDemoMode: true,
-      message: `Connection error: ${error.message}`
+      success: false,
+      error: `Extraction failed: ${error.message}`
     });
   }
 }

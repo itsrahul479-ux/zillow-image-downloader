@@ -78,10 +78,32 @@ function deduplicateZillowImages(urls: string[]): string[] {
   return Array.from(new Set([...groupedUrls, ...ungrouped]));
 }
 
+function extractZpid(zillowUrl: string): string | null {
+  const match = zillowUrl.match(/\/(\d+)_zpid/);
+  return match ? match[1] : null;
+}
+
 // Zillow scraper helper function
 async function scrapeZillowImages(zillowUrl: string) {
+  const zpid = extractZpid(zillowUrl);
+  // Use clean ZPID URL — strips query params that can trigger bot detection
+  const cleanUrl = zpid
+    ? `https://www.zillow.com/homedetails/${zpid}_zpid/`
+    : zillowUrl.split("?")[0];
+
   try {
-    const response = await fetch(zillowUrl, { signal: AbortSignal.timeout(10000) });
+    // KEY: Mobile Safari UA bypasses Zillow's Cloudflare desktop protection
+    const response = await fetch(cleanUrl, {
+      signal: AbortSignal.timeout(15000),
+      headers: {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "no-cache",
+        "Referer": "https://www.google.com/search?q=zillow+homes",
+      }
+    });
     
     if (!response.ok) {
       throw new Error(`Zillow returned status: ${response.status}`);
