@@ -113,6 +113,13 @@ export default function App() {
     showToast("Opening listing and retrieving data structure...", "loading");
 
     try {
+      const isDemoEnv = import.meta.env.VITE_DEMO_MODE === 'true';
+      
+      if (isDemoEnv) {
+        // On GitHub Pages, backend is not available — use demo data directly
+        throw new Error("DEMO_MODE");
+      }
+
       const response = await fetch("/api/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -157,7 +164,49 @@ export default function App() {
       }
     } catch (error: any) {
       console.error(error);
-      showToast(error.message || "Unable to extract images. Zillow may be actively blocking requests.", "error");
+      if (error.message === "DEMO_MODE") {
+        // GitHub Pages demo mode — load beautiful sample listing data
+        const demoData: ExtractionResponse = {
+          success: true,
+          address: "2444 Masonic Ave, San Francisco, CA 94127",
+          isDemoMode: true,
+          images: [
+            { url: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1920&q=85", filename: "01_exterior_facade_front.jpg", width: 3840, height: 2560 },
+            { url: "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1920&q=85", filename: "02_living_room_grand_fireplace.jpg", width: 1920, height: 1280 },
+            { url: "https://images.unsplash.com/photo-1600585154526-990dced4db0d?auto=format&fit=crop&w=1920&q=85", filename: "03_chef_kitchen_marble_island.jpg", width: 3840, height: 2560 },
+            { url: "https://images.unsplash.com/photo-1613977257363-707ba9348227?auto=format&fit=crop&w=1920&q=85", filename: "04_backyard_infinity_pool_dusk.jpg", width: 1920, height: 1280 },
+            { url: "https://images.unsplash.com/photo-1616594039964-ae9021a400a0?auto=format&fit=crop&w=1920&q=85", filename: "05_master_bedroom_panoramic_windows.jpg", width: 3000, height: 2000 },
+            { url: "https://images.unsplash.com/photo-1552321554-5fefe8c9ef14?auto=format&fit=crop&w=1920&q=85", filename: "06_master_spa_bathroom.jpg", width: 1920, height: 1280 },
+            { url: "https://images.unsplash.com/photo-1600566753376-12c8ab7fb75b?auto=format&fit=crop&w=1920&q=85", filename: "07_formal_dining_room.jpg", width: 3840, height: 2560 },
+            { url: "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=1920&q=85", filename: "08_sunlit_home_office.jpg", width: 2500, height: 1667 },
+            { url: "https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1920&q=85", filename: "09_guest_bedroom_suite.jpg", width: 1920, height: 1280 },
+            { url: "https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1920&q=85", filename: "10_modern_foyer_staircase.jpg", width: 3840, height: 2560 },
+            { url: "https://images.unsplash.com/photo-1600566752355-35792bedcfea?auto=format&fit=crop&w=1920&q=85", filename: "11_wine_cellar_tasting_nook.jpg", width: 3840, height: 2560 },
+            { url: "https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?auto=format&fit=crop&w=1920&q=85", filename: "12_walk_in_wardrobe.jpg", width: 1920, height: 1280 },
+            { url: "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=1920&q=85", filename: "13_secondary_bathroom.jpg", width: 1920, height: 1280 },
+            { url: "https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=1920&q=85", filename: "14_cozy_media_room.jpg", width: 1920, height: 1280 },
+            { url: "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1920&q=85", filename: "15_sunset_patio_firepit.jpg", width: 3840, height: 2560 },
+          ],
+          message: "Live demo mode — showing a high-fidelity sample property gallery. Deploy locally to extract real Zillow listings."
+        };
+        setExtractedData(demoData);
+        setSelectedUrls(new Set(demoData.images.map(img => img.url)));
+        const newHistoryItem: RecentExtraction = {
+          url: zillowUrl,
+          address: demoData.address,
+          imageCount: demoData.images.length,
+          timestamp: Date.now()
+        };
+        setRecentListings((prev) => {
+          const filtered = prev.filter(item => item.url !== zillowUrl);
+          const updated = [newHistoryItem, ...filtered].slice(0, 15);
+          localStorage.setItem("listinggrabber_history", JSON.stringify(updated));
+          return updated;
+        });
+        showToast("Demo mode: Showing sample property gallery. Run locally for real Zillow extraction!", "info");
+      } else {
+        showToast(error.message || "Unable to extract images. Zillow may be actively blocking requests.", "error");
+      }
     } finally {
       setIsLoading(false);
     }

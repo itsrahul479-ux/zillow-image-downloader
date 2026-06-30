@@ -7,7 +7,9 @@ import {defineConfig} from 'vite';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(() => {
+  const isGHPages = process.env.VITE_DEMO_MODE === 'true';
   return {
+    base: isGHPages ? '/zillow-image-downloader/' : '/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
