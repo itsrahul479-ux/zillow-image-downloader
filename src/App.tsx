@@ -113,13 +113,6 @@ export default function App() {
     showToast("Opening listing and retrieving data structure...", "loading");
 
     try {
-      const isDemoEnv = import.meta.env.VITE_DEMO_MODE === 'true';
-      
-      if (isDemoEnv) {
-        // On GitHub Pages, backend is not available — use demo data directly
-        throw new Error("DEMO_MODE");
-      }
-
       const response = await fetch("/api/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
