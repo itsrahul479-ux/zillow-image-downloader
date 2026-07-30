@@ -66,7 +66,7 @@ export default function HistorySidebar({
                 <div>
                   <h4 className="text-zinc-800 dark:text-white font-semibold text-sm">No History Yet</h4>
                   <p className="text-xs text-zinc-500 max-w-[200px] mx-auto mt-1">
-                    Your parsed Zillow listings will appear here for immediate access.
+                    Your parsed Zillow & Realtor.com listings will appear here for immediate access.
                   </p>
                 </div>
               </div>

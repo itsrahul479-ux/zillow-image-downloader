@@ -30,9 +30,15 @@ import HistorySidebar from "./components/HistorySidebar";
 export default function App() {
   // Theme state
   const [theme, setTheme] = useState<"light" | "dark">(() => {
+    // One-time migration: reset old default "dark" to new default "light"
+    const migrated = localStorage.getItem("listinggrabber_theme_v2");
+    if (!migrated) {
+      localStorage.removeItem("listinggrabber_theme");
+      localStorage.setItem("listinggrabber_theme_v2", "1");
+    }
     const saved = localStorage.getItem("listinggrabber_theme");
     if (saved === "light" || saved === "dark") return saved;
-    return "dark"; // Default to dark theme
+    return "light"; // Default to light theme
   });
 
   // Apply theme to document element
@@ -148,7 +154,7 @@ export default function App() {
         });
 
         if (data.isDemoMode) {
-          showToast("Simulation Loaded: Zillow access restricted, viewing beautiful sample real estate photo gallery.", "info");
+          showToast("Simulation Loaded: Property access protected by firewall, viewing high-fidelity photo gallery.", "info");
         } else {
           showToast(`Extracted ${data.images.length} high-resolution listing photos!`, "success");
         }
@@ -253,12 +259,8 @@ export default function App() {
   };
 
   const handleUnselectAllFiltered = () => {
-    setSelectedUrls((prev) => {
-      const next = new Set(prev);
-      filteredAndSortedImages.forEach((img) => next.delete(img.url));
-      return next;
-    });
-    showToast("Cleared active photo selections.", "info");
+    setSelectedUrls(new Set());
+    showToast("Cleared all photo selections.", "info");
   };
 
   // Copy all source URLs to clipboard
@@ -547,9 +549,9 @@ export default function App() {
                   <div className="flex gap-2.5 items-start">
                     <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5 md:mt-0" />
                     <div>
-                      <p className="font-semibold text-amber-300">Zillow Security Bypass Activated</p>
+                      <p className="font-semibold text-amber-300">Listing Security Protection Activated</p>
                       <p className="text-amber-400/80 text-[11px] md:text-xs mt-0.5 leading-relaxed">
-                        To guarantee a seamless experience and bypass Cloudflare automated IP protection, we have initialized high-fidelity representations. Download individual files, copy source strings, and assemble select-ZIP packages safely!
+                        To guarantee a seamless experience and bypass website security firewall protection, we have initialized high-fidelity listing representations. Download individual files, copy source strings, and assemble select-ZIP packages safely!
                       </p>
                     </div>
                   </div>

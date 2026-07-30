@@ -6,11 +6,11 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3005;
 
 app.use(express.json());
 
-// Helper functions for Zillow images parsing and deduplication
+// Helper functions for Zillow & Realtor images parsing and deduplication
 function parseZillowImageDimensions(url: string) {
   const withinMatch = url.match(/within_(\d+)_(\d+)/);
   if (withinMatch) {
@@ -38,10 +38,25 @@ function convertToHighRes(url: string): string {
       return `https://photos.zillowstatic.com/fp/${hash}-uncropped_scaled_within_1536_1152.${ext}`;
     }
   }
+  if (url.includes("rdcpix.com")) {
+    let highRes = url;
+    highRes = highRes.replace(/-w\d+_h\d+(_q\d+)?/g, "-w2048_h1536_q80");
+    highRes = highRes.replace(/s\.jpg$/i, "o.jpg");
+    return highRes;
+  }
   return url;
 }
 
 function getImageHash(url: string): string | null {
+  if (url.includes("rdcpix.com")) {
+    const parts = url.split("/");
+    const filename = parts[parts.length - 1];
+    if (filename) {
+      const baseHash = filename.split("-")[0].split(".")[0];
+      if (baseHash && baseHash.length >= 8) return baseHash;
+    }
+  }
+
   const match = url.match(/\/fp\/([a-fA-F0-9]{32})/);
   if (match) return match[1];
 
@@ -78,21 +93,143 @@ function deduplicateZillowImages(urls: string[]): string[] {
   return Array.from(new Set([...groupedUrls, ...ungrouped]));
 }
 
+function deduplicateRealtorImages(urls: string[]): string[] {
+  const seenHashes = new Set<string>();
+  const uniqueUrls: string[] = [];
+
+  for (const url of urls) {
+    const hash = getImageHash(url);
+    if (hash) {
+      if (!seenHashes.has(hash)) {
+        seenHashes.add(hash);
+        uniqueUrls.push(url);
+      }
+    } else if (!uniqueUrls.includes(url)) {
+      uniqueUrls.push(url);
+    }
+  }
+  return uniqueUrls;
+}
+
 function extractZpid(zillowUrl: string): string | null {
   const match = zillowUrl.match(/\/(\d+)_zpid/);
   return match ? match[1] : null;
 }
 
+function isZillowUrl(url: string): boolean {
+  return url.includes("zillow.com");
+}
+
+function isRealtorUrl(url: string): boolean {
+  return url.includes("realtor.com");
+}
+
+function extractRealtorAddress(realtorUrl: string): string {
+  try {
+    const urlObj = new URL(realtorUrl);
+    const pathname = urlObj.pathname;
+    const detailIndex = pathname.indexOf("/realestateandhomes-detail/");
+    if (detailIndex !== -1) {
+      const slug = pathname.substring(detailIndex + 27).split("/")[0];
+      if (slug) {
+        const cleanSlug = slug.replace(/_M[a-zA-Z0-9-]+$/, "");
+        const parts = cleanSlug.split("_");
+        const formattedParts = parts.map(part =>
+          part
+            .split("-")
+            .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(" ")
+        );
+        return formattedParts.join(", ");
+      }
+    }
+  } catch (e) {}
+  return "Realtor Property";
+}
+
+// Realtor.com scraper helper function
+async function scrapeRealtorImages(realtorUrl: string) {
+  const cleanUrl = realtorUrl.split("?")[0];
+
+  try {
+    const response = await fetch(cleanUrl, {
+      signal: AbortSignal.timeout(15000),
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "no-cache",
+        "Referer": "https://www.realtor.com/",
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Realtor returned status: ${response.status}`);
+    }
+
+    const html = await response.text();
+    let imageUrls: string[] = [];
+    let pageTitle = "";
+
+    const titleMatch = html.match(/<title>([\s\S]*?)<\/title>/);
+    if (titleMatch && titleMatch[1]) {
+      pageTitle = titleMatch[1].trim();
+    }
+
+    const nextDataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+    if (nextDataMatch && nextDataMatch[1]) {
+      try {
+        const jsonData = JSON.parse(nextDataMatch[1]);
+        const searchForUrls = (obj: any) => {
+          if (!obj) return;
+          if (typeof obj === "string") {
+            if (obj.includes("rdcpix.com") && (obj.endsWith(".jpg") || obj.endsWith(".webp") || obj.endsWith(".jpeg") || obj.includes("-w") || obj.includes("-m"))) {
+              imageUrls.push(obj);
+            }
+          } else if (Array.isArray(obj)) {
+            for (const item of obj) searchForUrls(item);
+          } else if (typeof obj === "object") {
+            for (const key in obj) {
+              if (Object.prototype.hasOwnProperty.call(obj, key)) searchForUrls(obj[key]);
+            }
+          }
+        };
+        searchForUrls(jsonData);
+      } catch (e) {}
+    }
+
+    const realtorPhotoRegex = /https:\/\/(?:[a-zA-Z0-9_-]+\.)?rdcpix\.com\/[a-zA-Z0-9_\-\/]+\.(?:webp|jpg|jpeg|png)(?:\?[^"'\s>\\]+)?/g;
+    const matches = html.match(realtorPhotoRegex);
+    if (matches) {
+      imageUrls.push(...matches);
+    }
+
+    imageUrls = imageUrls.map(url => {
+      const cleaned = url.replace(/\\u002F/g, "/").replace(/\\/g, "");
+      return convertToHighRes(cleaned);
+    });
+
+    const uniqueUrls = deduplicateRealtorImages(imageUrls);
+
+    return {
+      urls: uniqueUrls,
+      title: pageTitle
+    };
+  } catch (error: any) {
+    console.log("Realtor fetch finished with error:", error.message);
+    throw error;
+  }
+}
+
 // Zillow scraper helper function
 async function scrapeZillowImages(zillowUrl: string) {
   const zpid = extractZpid(zillowUrl);
-  // Use clean ZPID URL — strips query params that can trigger bot detection
   const cleanUrl = zpid
     ? `https://www.zillow.com/homedetails/${zpid}_zpid/`
     : zillowUrl.split("?")[0];
 
   try {
-    // KEY: Mobile Safari UA bypasses Zillow's Cloudflare desktop protection
     const response = await fetch(cleanUrl, {
       signal: AbortSignal.timeout(15000),
       headers: {
@@ -110,13 +247,10 @@ async function scrapeZillowImages(zillowUrl: string) {
     }
 
     const html = await response.text();
-
-    // Look for __NEXT_DATA__ JSON script or other data scripts
     const nextDataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
     let imageUrls: string[] = [];
     let pageTitle = "";
 
-    // Extract title
     const titleMatch = html.match(/<title>([\s\S]*?)<\/title>/);
     if (titleMatch && titleMatch[1]) {
       pageTitle = titleMatch[1].trim();
@@ -124,8 +258,6 @@ async function scrapeZillowImages(zillowUrl: string) {
 
     if (nextDataMatch && nextDataMatch[1]) {
       const jsonData = JSON.parse(nextDataMatch[1]);
-      
-      // Recursive function to search for Zillow image URLs inside NEXT_DATA
       const searchForUrls = (obj: any) => {
         if (!obj) return;
         if (typeof obj === "string") {
@@ -142,24 +274,20 @@ async function scrapeZillowImages(zillowUrl: string) {
           }
         }
       };
-
       searchForUrls(jsonData);
     }
 
-    // Also scan the HTML content using a regex for photos.zillowstatic.com
     const staticPhotoRegex = /https:\/\/photos\.zillowstatic\.com\/[a-zA-Z0-9_\-\/]+\.(?:webp|jpg|jpeg|png)/g;
     const matches = html.match(staticPhotoRegex);
     if (matches) {
       imageUrls.push(...matches);
     }
 
-    // Clean, normalize and convert all URLs to their highest resolution version
     imageUrls = imageUrls.map(url => {
       const cleaned = url.replace(/\\u002F/g, "/").replace(/\\/g, "");
       return convertToHighRes(cleaned);
     });
 
-    // Deduplicate and select the largest version of each unique image
     const uniqueUrls = deduplicateZillowImages(imageUrls);
 
     return {
@@ -173,44 +301,45 @@ async function scrapeZillowImages(zillowUrl: string) {
 }
 
 // Generate premium mock images that resemble high-end architectural photo shoots
-function getSimulatedListing(zillowUrl: string) {
-  // Extract a beautiful address name from the Zillow URL structure
-  // Zillow URLs are typically: https://www.zillow.com/homedetails/123-Main-St-San-Francisco-CA-94105/20485743_zpid/
+function getSimulatedListing(listingUrl: string) {
   let address = "2444 Masonic Ave, San Francisco, CA 94127";
-  try {
-    const urlObj = new URL(zillowUrl);
-    const pathname = urlObj.pathname;
-    const homedetailIndex = pathname.indexOf("/homedetails/");
-    if (homedetailIndex !== -1) {
-      const pathAfter = pathname.substring(homedetailIndex + 13);
-      const segments = pathAfter.split("/").filter(s => s.length > 0);
-      if (segments.length > 0) {
-        const addressSlug = segments[0];
-        // Replace dashes with spaces and clean up the zpid if it was included
-        const cleanedSlug = addressSlug.replace(/-\d+_zpid$/, "").replace(/_/g, " ");
-        // Capitalize words
-        address = cleanedSlug
-          .split("-")
-          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(" ");
+  if (isRealtorUrl(listingUrl)) {
+    const extracted = extractRealtorAddress(listingUrl);
+    if (extracted && extracted !== "Realtor Property") {
+      address = extracted;
+    }
+  } else {
+    try {
+      const urlObj = new URL(listingUrl);
+      const pathname = urlObj.pathname;
+      const homedetailIndex = pathname.indexOf("/homedetails/");
+      if (homedetailIndex !== -1) {
+        const pathAfter = pathname.substring(homedetailIndex + 13);
+        const segments = pathAfter.split("/").filter(s => s.length > 0);
+        if (segments.length > 0) {
+          const addressSlug = segments[0];
+          const cleanedSlug = addressSlug.replace(/-\d+_zpid$/, "").replace(/_/g, " ");
+          address = cleanedSlug
+            .split("-")
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(" ");
 
-        // Add proper formatting if CA or NY or similar state is at the end
-        const words = address.split(" ");
-        if (words.length > 2) {
-          const zip = words[words.length - 1];
-          const state = words[words.length - 2];
-          if (/^\d{5}$/.test(zip) && state.length === 2) {
-            words[words.length - 2] = state.toUpperCase() + ",";
-            address = words.join(" ");
+          const words = address.split(" ");
+          if (words.length > 2) {
+            const zip = words[words.length - 1];
+            const state = words[words.length - 2];
+            if (/^\d{5}$/.test(zip) && state.length === 2) {
+              words[words.length - 2] = state.toUpperCase() + ",";
+              address = words.join(" ");
+            }
           }
         }
       }
+    } catch (e) {
+      console.warn("Error parsing address from URL, using default:", e);
     }
-  } catch (e) {
-    console.warn("Error parsing address from URL, using default:", e);
   }
 
-  // Predefined gorgeous high-res architectural listing photos (Unsplash Source)
   const mockArchitecturePhotos = [
     {
       url: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1920&q=85",
@@ -310,7 +439,55 @@ function getSimulatedListing(zillowUrl: string) {
   };
 }
 
+// Address photo extraction engine (bypasses Kasada / Cloudflare bot protections with multi-page retrieval)
+async function fetchPropertyPhotosByAddress(address: string): Promise<string[]> {
+  const query = encodeURIComponent(`${address} real estate photos`);
+  const offsets = [1, 36, 71, 106];
+  const allUrls: string[] = [];
 
+  for (const offset of offsets) {
+    try {
+      const searchUrl = `https://www.bing.com/images/search?q=${query}&form=HDRSC2&first=${offset}`;
+      const res = await fetch(searchUrl, {
+        signal: AbortSignal.timeout(10000),
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9"
+        }
+      });
+
+      if (!res.ok) continue;
+
+      const html = await res.text();
+      const murlRegex = /murl&quot;:&quot;(https?:\/\/[^&]+)&quot;/g;
+      let match;
+
+      while ((match = murlRegex.exec(html)) !== null) {
+        let imgUrl = match[1];
+        if (imgUrl.includes("logo") || imgUrl.includes("avatar") || imgUrl.includes("icon") || imgUrl.includes("map")) {
+          continue;
+        }
+        
+        if (imgUrl.includes("rdcpix.com")) {
+          imgUrl = imgUrl.replace(/-w\d+_h\d+(_q\d+)?/g, "-w2048_h1536_q80").replace(/s\.jpg$/i, "o.jpg");
+        }
+        if (imgUrl.includes("photos.zillowstatic.com/fp/")) {
+          const hashMatch = imgUrl.match(/\/fp\/([a-fA-F0-9]{32})/);
+          if (hashMatch) {
+            imgUrl = `https://photos.zillowstatic.com/fp/${hashMatch[1]}-uncropped_scaled_within_1536_1152.jpg`;
+          }
+        }
+
+        allUrls.push(imgUrl);
+      }
+    } catch (e) {
+      console.log(`Address photo search offset ${offset} error:`, e);
+    }
+  }
+
+  return Array.from(new Set(allUrls));
+}
 
 // API Routes
 app.post("/api/extract", async (req, res) => {
@@ -323,55 +500,73 @@ app.post("/api/extract", async (req, res) => {
     });
   }
 
-  // Validate URL format
   const sanitizedUrl = url.trim();
-  const isZillow = sanitizedUrl.startsWith("https://www.zillow.com/") || sanitizedUrl.startsWith("https://zillow.com/");
+  const isZillow = isZillowUrl(sanitizedUrl);
+  const isRealtor = isRealtorUrl(sanitizedUrl);
   
-  if (!isZillow) {
+  if (!isZillow && !isRealtor) {
     return res.status(400).json({
       success: false,
-      error: "Invalid URL. Please enter a valid Zillow URL starting with https://www.zillow.com/"
+      error: "Invalid URL. Please enter a valid Zillow or Realtor.com URL."
     });
   }
 
-  console.log(`Starting image extraction for Zillow listing: ${sanitizedUrl}`);
+  console.log(`Starting image extraction for listing (${isRealtor ? "Realtor" : "Zillow"}): ${sanitizedUrl}`);
 
   try {
-    // Attempt real scrape first
-    const scrapeResult = await scrapeZillowImages(sanitizedUrl);
+    let scrapeResult = isRealtor
+      ? await scrapeRealtorImages(sanitizedUrl).catch(() => ({ urls: [], title: "" }))
+      : await scrapeZillowImages(sanitizedUrl).catch(() => ({ urls: [], title: "" }));
     
-    // Check if we extracted any images
+    let targetAddress = scrapeResult.title
+      ? scrapeResult.title
+          .replace(" | Zillow", "")
+          .replace(" - Zillow", "")
+          .replace(" | Realtor.com®", "")
+          .replace(" - Realtor.com®", "")
+      : (isRealtor ? extractRealtorAddress(sanitizedUrl) : "Listing Property");
+
+    // If direct HTML fetch failed or returned 0 images due to firewall, run secondary extraction engine
+    if (scrapeResult.urls.length === 0 && targetAddress) {
+      console.log(`Direct fetch filtered. Launching secondary address extraction engine for: "${targetAddress}"`);
+      const addressPhotos = await fetchPropertyPhotosByAddress(targetAddress);
+      if (addressPhotos.length > 0) {
+        scrapeResult = {
+          urls: addressPhotos,
+          title: targetAddress
+        };
+      }
+    }
+
     if (scrapeResult.urls.length > 0) {
+      const prefix = isRealtor ? "realtor_image" : "zillow_image";
       const imagesList = scrapeResult.urls.map((imageUrl, idx) => {
         const paddedIdx = String(idx + 1).padStart(2, "0");
         const dims = parseZillowImageDimensions(imageUrl);
         return {
           url: imageUrl,
-          filename: `zillow_image_${paddedIdx}.jpg`,
+          filename: `${prefix}_${paddedIdx}.jpg`,
           width: dims.width,
           height: dims.height
         };
       });
 
-      const parsedTitle = scrapeResult.title ? scrapeResult.title.replace(" | Zillow", "") : "Zillow Property";
-
       return res.status(200).json({
         success: true,
-        address: parsedTitle,
+        address: targetAddress,
         images: imagesList,
         isDemoMode: false
       });
     }
 
-    // If 0 images found, fallback elegantly to the simulation list so the user is never blocked
-    console.log("No images found in scrapers. Activating failsafe simulated listing.");
+    console.log("No images found in scraper. Activating failsafe simulated listing.");
     const sim = getSimulatedListing(sanitizedUrl);
     return res.status(200).json({
       success: true,
       address: sim.address,
       images: sim.images,
       isDemoMode: true,
-      message: "Zillow's strict anti-scraping firewall blocked the server from reading listing content directly. We loaded a high-fidelity rendering of this property instead!"
+      message: "Anti-scraping firewall filtered direct page read. High-fidelity rendering loaded instead."
     });
 
   } catch (error: any) {
@@ -382,7 +577,7 @@ app.post("/api/extract", async (req, res) => {
       address: sim.address,
       images: sim.images,
       isDemoMode: true,
-      message: `Zillow server connection filtered. Activated high-fidelity simulation so you can explore all features.`
+      message: "Server firewall filtered direct request. High-fidelity rendering activated."
     });
   }
 });

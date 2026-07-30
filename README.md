@@ -1,14 +1,14 @@
 # ListingGrabber AI 🏢
 
-An ultra-polished, production-grade media extraction web application that helps users download high-resolution photos from Zillow listings. Built with a responsive, modern interface inspired by ChatGPT, Vercel, and Linear, utilizing React 19, Vite, Express, and Framer Motion.
+An ultra-polished, production-grade media extraction web application that helps users download high-resolution photos from Zillow and Realtor.com listings. Built with a responsive, modern interface inspired by ChatGPT, Vercel, and Linear, utilizing React 19, Vite, Express, and Framer Motion.
 
 ## ✨ Features
 
-- ⚡️ **One-Click Media Extraction**: Instantly scans Zillow pages to locate, isolate, and list every high-resolution photo.
+- ⚡️ **One-Click Media Extraction**: Instantly scans Zillow and Realtor.com property pages to locate, isolate, and list every high-resolution photo.
 - 📦 **On-the-Fly ZIP Bundling**: Downloads, packages, and compresses multiple or all selected photos into a single clean ZIP archive instantly in the browser using `JSZip`.
-- 🔍 **Interactive Bento Gallery**: View images in a responsive Pinterest-like grid showing realistic pixel dimensions and file naming schemas.
+- 🔍 **Interactive Bento Gallery**: View images in a responsive grid showing realistic pixel dimensions and file naming schemas.
 - 🎨 **Cinema-Quality Lightbox Preview**: Full-screen modal supporting mouse zooming, keyboard arrow navigations, escape to close, and direct saving options.
-- 🧠 **Anti-Scraping Failsafe System**: When Cloudflare or Zillow restrictions block server-side direct cloud scraping, the system automatically triggers a high-fidelity modern architectural listing match so the user can test all download, search, and sorting systems seamlessly.
+- 🧠 **Anti-Scraping Failsafe System**: When Cloudflare or firewall restrictions block server-side direct cloud scraping, the system automatically triggers a high-fidelity modern architectural listing match so the user can test all download, search, and sorting systems seamlessly.
 - 💾 **Persistent Session History**: Remembers your recently scraped listings in `localStorage` for immediate recall.
 - ⌨️ **Pro Keyboard Shortcuts**: Supports `/` to search, `Esc` to close modal views, and `Left / Right` arrows for slideshow navigation.
 

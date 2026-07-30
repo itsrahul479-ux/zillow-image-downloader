@@ -14,10 +14,16 @@ export default function IntroSection({ onExtract, isLoading, onShowRecent, hasRe
   const [errorMsg, setErrorMsg] = useState("");
   const [isDragging, setIsDragging] = useState(false);
 
-  const sampleUrl = "https://www.zillow.com/homedetails/2444-Masonic-Ave-San-Francisco-CA-94127/15148679_zpid/";
+  const sampleZillowUrl = "https://www.zillow.com/homedetails/2444-Masonic-Ave-San-Francisco-CA-94127/15148679_zpid/";
+  const sampleRealtorUrl = "https://www.realtor.com/realestateandhomes-detail/2444-Masonic-Ave_San-Francisco_CA_94127_M15148679";
 
-  const handlePasteSample = () => {
-    setUrlInput(sampleUrl);
+  const handlePasteZillowSample = () => {
+    setUrlInput(sampleZillowUrl);
+    setErrorMsg("");
+  };
+
+  const handlePasteRealtorSample = () => {
+    setUrlInput(sampleRealtorUrl);
     setErrorMsg("");
   };
 
@@ -28,9 +34,10 @@ export default function IntroSection({ onExtract, isLoading, onShowRecent, hasRe
       return;
     }
 
-    const isZillow = trimmed.startsWith("https://www.zillow.com/") || trimmed.startsWith("https://zillow.com/");
-    if (!isZillow) {
-      setErrorMsg("Please enter a valid Zillow URL starting with https://www.zillow.com/");
+    const isZillow = trimmed.includes("zillow.com");
+    const isRealtor = trimmed.includes("realtor.com");
+    if (!isZillow && !isRealtor) {
+      setErrorMsg("Please enter a valid Zillow or Realtor.com URL.");
       return;
     }
 
@@ -47,7 +54,7 @@ export default function IntroSection({ onExtract, isLoading, onShowRecent, hasRe
   const handlePasteFromClipboard = async () => {
     try {
       const text = await navigator.clipboard.readText();
-      if (text.startsWith("https://") && text.includes("zillow.com")) {
+      if (text.startsWith("https://") && (text.includes("zillow.com") || text.includes("realtor.com"))) {
         setUrlInput(text);
         setErrorMsg("");
       }
@@ -108,8 +115,8 @@ export default function IntroSection({ onExtract, isLoading, onShowRecent, hasRe
               <div className="w-16 h-16 bg-zinc-100 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex items-center justify-center mx-auto animate-bounce">
                 <Globe className="w-8 h-8 text-blue-500" />
               </div>
-              <h3 className="text-2xl font-bold text-zinc-800 dark:text-zinc-100">Drop Zillow Link</h3>
-              <p className="text-zinc-500 dark:text-zinc-400 max-w-sm text-sm">Release to instantly paste and parse the property listing images</p>
+              <h3 className="text-2xl font-bold text-zinc-800 dark:text-zinc-100">Drop Property Listing Link</h3>
+              <p className="text-zinc-500 dark:text-zinc-400 max-w-sm text-sm">Release to instantly paste and parse Zillow or Realtor.com images</p>
             </div>
           </motion.div>
         )}
@@ -124,7 +131,7 @@ export default function IntroSection({ onExtract, isLoading, onShowRecent, hasRe
         {/* Logo Icon Badge */}
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs font-semibold tracking-wider uppercase mb-1">
           <Sparkles className="w-3.5 h-3.5 text-blue-500 animate-pulse" />
-          Powered by Playwright & AI
+          Zillow & Realtor.com Support
         </div>
 
         {/* Heading */}
@@ -133,7 +140,7 @@ export default function IntroSection({ onExtract, isLoading, onShowRecent, hasRe
             Listing<span className="text-blue-500">Grabber AI</span>
           </h1>
           <p className="text-sm md:text-base text-zinc-600 dark:text-zinc-400 max-w-lg mx-auto font-medium leading-relaxed">
-            Paste a Zillow listing URL to instantly extract every available property image in a beautiful minimalist gallery.
+            Paste a Zillow or Realtor.com listing URL to instantly extract every available property image in a beautiful gallery.
           </p>
         </div>
 
@@ -146,7 +153,7 @@ export default function IntroSection({ onExtract, isLoading, onShowRecent, hasRe
               </div>
               <input
                 type="text"
-                placeholder="Paste Zillow listing URL here..."
+                placeholder="Paste Zillow or Realtor.com listing URL here..."
                 value={urlInput}
                 onChange={(e) => {
                   setUrlInput(e.target.value);
@@ -188,7 +195,7 @@ export default function IntroSection({ onExtract, isLoading, onShowRecent, hasRe
                 className="flex-1 py-3.5 px-6 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-500 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-blue-900/10"
               >
                 <Building2 className="w-4 h-4" />
-                {isLoading ? "Analyzing..." : "Extract Images"}
+                {isLoading ? "Extracting..." : "Extract Images"}
               </button>
 
               {hasRecent && (
@@ -203,16 +210,25 @@ export default function IntroSection({ onExtract, isLoading, onShowRecent, hasRe
             </div>
           </form>
 
-          {/* Quick Example */}
-          <div className="mt-5 pt-5 border-t border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row items-center justify-between text-xs text-zinc-500 gap-2.5">
-            <span className="font-semibold text-zinc-500 dark:text-zinc-400">Example URL:</span>
-            <button
-              onClick={handlePasteSample}
-              type="button"
-              className="text-blue-600 dark:text-blue-500 hover:text-blue-500 dark:hover:text-blue-400 hover:underline font-mono truncate max-w-full sm:max-w-xs md:max-w-md bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800/80 px-2 py-1 rounded border border-zinc-200 dark:border-zinc-800 transition-colors cursor-pointer"
-            >
-              zillow.com/homedetails/2444-Masonic-Ave...
-            </button>
+          {/* Quick Examples */}
+          <div className="mt-5 pt-5 border-t border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row items-center justify-between text-xs text-zinc-500 gap-2 font-medium">
+            <span className="font-semibold text-zinc-500 dark:text-zinc-400">Examples:</span>
+            <div className="flex flex-wrap gap-2 justify-center sm:justify-end">
+              <button
+                onClick={handlePasteZillowSample}
+                type="button"
+                className="text-blue-600 dark:text-blue-500 hover:text-blue-500 dark:hover:text-blue-400 hover:underline font-mono text-[11px] bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800/80 px-2 py-1 rounded border border-zinc-200 dark:border-zinc-800 transition-colors cursor-pointer"
+              >
+                Zillow Sample
+              </button>
+              <button
+                onClick={handlePasteRealtorSample}
+                type="button"
+                className="text-blue-600 dark:text-blue-500 hover:text-blue-500 dark:hover:text-blue-400 hover:underline font-mono text-[11px] bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800/80 px-2 py-1 rounded border border-zinc-200 dark:border-zinc-800 transition-colors cursor-pointer"
+              >
+                Realtor.com Sample
+              </button>
+            </div>
           </div>
         </div>
 
